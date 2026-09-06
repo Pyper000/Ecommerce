@@ -1,6 +1,35 @@
-# Globex - 跨境电商 Agent（AgentScope 2.0）
+# Ecommerce - 跨境电商 Agent（AgentScope 2.0）
 
-基于 AgentScope 2.0 的跨境电商超级搜索框 Agent 系统，DDD 洋葱架构落地：
+## 产品定位
+
+Ecommerce 是一个面向跨境购物的搜索与决策 Agent。它处理的不是单一关键词检索，而是类似：
+
+> “我想买一套便宜又抗造的旅行三件套，预算 300 块，不要塑料，寄到美国。”
+
+这类 Query 同时包含品类、属性、预算、目的国、长期偏好和购买动作。项目的核心目标是让系统不仅返回商品，还能解释“为什么推荐”“为什么没有结果”以及“下一步该怎么做”。
+
+当前项目使用模拟商品目录、脱敏知识文档和离线评测数据，不接入真实用户、支付、账户、物流或企业搜索日志。
+
+## 搜索决策链路
+
+```text
+自然语言需求
+  -> 意图/槽位理解（品类、属性、预算、目的国、偏好、行动状态）
+  -> 商品检索与硬约束过滤
+  -> 推荐、比较或无结果原因解释
+  -> 确认卡
+  -> 模拟订单操作
+```
+
+业务上重点治理四类“无结果”：真无供给、超预算、目的国不可达、信息不足。系统需要明确告诉用户结果被什么条件挡住，而不是笼统回答“没有找到”。
+
+## 三个 Agent 的产品分工
+
+- **MainAgent**（CommerceConcierge）：判断用户处于找商品、选购咨询、比较还是确认阶段，维护多轮条件与长期偏好。默认直接完成简单任务，只在多品类并行检索、深度筛选或上下文需要隔离时派发子 Agent，避免无效转交。
+- **SearchAgent**（CatalogSearchAgent）：将口语 Query 标准化为品类、属性、预算和目的国，完成候选召回、排序、约束过滤和无结果归因，输出可解释的商品/替代建议。
+- **TradeAgent**（OrderTradeAgent）：承接确认后的模拟订单创建、查询与取消；所有写操作都需先展示确认卡并获得用户明确确认，避免模型直接执行交易。
+
+## 工程架构
 
 - **MainAgent**（CommerceConcierge）：超级框总调度，**持有全部业务工具可直接单干**；
   内置 Task 计划四件套管理任务清单；满足"可并行 / 上下文隔离 / 链深"任一条件时经 `task_dispatch` 派发子 Agent；
@@ -31,7 +60,7 @@ app/
 │   ├── usecases/      # CatalogSearch（二阶段召回+到手价内联）、PlaceOrder/QueryOrder/CancelOrder
 │   ├── tools/         # product_search、订单三工具、web_search、remember_preference、task_dispatch
 │   ├── agents/        # MainAgent / SearchAgent / TradeAgent 工厂 + Orchestrator + SessionRegistry
-│   └── prompts/       # globex.yml：主 / 子 Agent 系统提示词
+│   └── prompts/       # ecommerce.yml：主 / 子 Agent 系统提示词
 ├── infrastructure/    # llm/embedding/qdrant/reranker/tracing、rag 知识库、缓存、队列、韧性与闸门、仓储
 ├── presentation/      # FastAPI 路由、WebSocket ConnectionManager、DTO
 ├── composition.py     # 装配容器（API 与 worker 共用一份接线）
@@ -131,3 +160,12 @@ docker compose -f docker/docker-compose.yaml up -d --build   # app + qdrant + fr
 
 本地开发不依赖 Docker：QDRANT_URL 置空时自动用 qdrant-client 本地嵌入模式（单进程文件锁，
 多实例/生产请用 compose 的 Qdrant 服务端）。
+
+## 公网作品集部署
+
+项目提供 `render.yaml`，默认按单个 Docker Web Service 部署：同一个公网地址同时提供 React
+前端、FastAPI API 和 WebSocket。部署时只需在云平台配置 `LLM_API_KEY`；密钥只放服务端环境变量，
+不要写入前端或提交到 Git。
+
+作品集演示默认关闭 Redis 队列和语义缓存，商品目录、账户上下文和订单均为模拟数据；平台服务
+休眠、超额或模型 API 不可用时，网页仍可能打开，但搜索请求会失败。

@@ -20,7 +20,7 @@ from app.infrastructure.settings import Settings
 
 
 def _point_id(product_id: str) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"globex/product/{product_id}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"ecommerce/product/{product_id}"))
 
 
 class QdrantProductIndex(ProductVectorIndex):
@@ -62,11 +62,13 @@ class QdrantProductIndex(ProductVectorIndex):
             limit=top_n,
             with_payload=True,
         )
-        return [
+        hits = [
             VectorHit(product_id=point.payload["product_id"], score=point.score)
             for point in result.points
             if point.payload and "product_id" in point.payload
         ]
+        # Qdrant 对同分结果的返回顺序不保证稳定，固定二级排序避免商品卡顺序抖动。
+        return sorted(hits, key=lambda hit: (-hit.score, hit.product_id))
 
     async def close(self) -> None:
         await self._client.close()

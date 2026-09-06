@@ -26,9 +26,12 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.application.agents.orchestrator import SubmitIntentInput
@@ -86,7 +89,7 @@ def build_app() -> FastAPI:
             state.pop("c", None)
             await c.shutdown()
 
-    api = FastAPI(title="Globex 跨境电商 Agent", version="0.4.0", lifespan=lifespan)
+    api = FastAPI(title="Ecommerce 跨境电商 Agent", version="0.4.0", lifespan=lifespan)
 
     def container() -> Container:
         if "c" not in state:
@@ -198,6 +201,21 @@ def build_app() -> FastAPI:
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
 
+    # 云端镜像同时提供编译后的 React 前端；本地开发仍使用独立 Vite 服务。
+    static_dir = Path(__file__).resolve().parents[2] / "frontend-dist"
+    if static_dir.is_dir() and (static_dir / "index.html").is_file():
+        assets_dir = static_dir / "assets"
+        if assets_dir.is_dir():
+            api.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+        @api.get("/{path:path}", include_in_schema=False)
+        async def serve_frontend(path: str) -> FileResponse:
+            static_root = static_dir.resolve()
+            requested = (static_root / path).resolve()
+            if requested.is_file() and static_root in requested.parents:
+                return FileResponse(requested)
+            return FileResponse(static_root / "index.html")
+
     return api
 
 
@@ -210,7 +228,7 @@ async def _queue_priority(c: Container, session_id: str) -> int:
     """
     if not c.settings.queue_priority_enabled or not c.cache.enabled:
         return 0
-    key = f"globex:turns:{session_id}"
+    key = f"ecommerce:turns:{session_id}"
     try:
         current = int(await c.cache.get_raw(key) or 0) + 1
         await c.cache.set_json(key, current, _TURN_COUNTER_TTL_SECONDS)

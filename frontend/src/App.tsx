@@ -1,10 +1,82 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import EventTimeline from "./components/EventTimeline";
 import ProductCards from "./components/ProductCards";
 import type { TradeEvent } from "./types";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+const localApiBase = `${window.location.protocol}//${window.location.hostname || "127.0.0.1"}:8000`;
+const isLocalVite = window.location.port === "5173" || window.location.port === "5174";
+const API_BASE =
+  import.meta.env.VITE_API_BASE || (isLocalVite ? localApiBase : window.location.origin);
 const WS_BASE = API_BASE.replace(/^http/, "ws");
+
+const UI = {
+  zh: {
+    brand: "Ecommerce",
+    title: "跨境购物搜索工作台",
+    eyebrow: "AI SEARCH COMPANION",
+    connected: "事件流已连接",
+    disconnected: "事件流断开",
+    ready: "等待你的购物任务",
+    working: "Agent 正在拆解需求",
+    results: "召回结果",
+    brief: "你的购物需求",
+    briefHint: "把预算、品类、目的地和偏好说出来，Agent 会帮你整理成可检索的 Query。",
+    emptyBrief: "你的问题会出现在这里，并逐步变成结构化搜索条件。",
+    queryReadout: "Query 解析",
+    originalQuery: "原始表达",
+    normalizedQuery: "标准化检索词",
+    category: "品类",
+    destination: "目的地",
+    budget: "预算上限",
+    strategy: "召回策略",
+    candidates: "候选数",
+    notCaptured: "尚未捕捉",
+    waiting: "等待搜索",
+    noBudget: "未设置",
+    noDestination: "未设置",
+    noCategory: "待识别",
+    welcomeTitle: "先告诉我，你想买什么？",
+    welcomeText: "不用组织成标准关键词。把场景、预算和顾虑直接说出来，我会先理解，再检索和解释结果。",
+    placeholder: "例如：我人在美国，250 美元预算买个降噪耳机寄美国，到手价多少？",
+    send: "发送",
+    processing: "处理中",
+    simulated: "模拟商品目录 · 模拟账户上下文 · 不连接真实交易",
+    language: "EN",
+  },
+  en: {
+    brand: "Ecommerce",
+    title: "Cross-border shopping workbench",
+    eyebrow: "AI SEARCH COMPANION",
+    connected: "Event stream connected",
+    disconnected: "Event stream offline",
+    ready: "Ready for your shopping task",
+    working: "Agent is structuring your request",
+    results: "Retrieved candidates",
+    brief: "Your shopping brief",
+    briefHint: "Share your budget, category, destination, and preferences. The Agent will turn them into a searchable query.",
+    emptyBrief: "Your question will appear here and gradually become structured search conditions.",
+    queryReadout: "Query readout",
+    originalQuery: "Original expression",
+    normalizedQuery: "Normalized query",
+    category: "Category",
+    destination: "Destination",
+    budget: "Budget cap",
+    strategy: "Recall strategy",
+    candidates: "Candidates",
+    notCaptured: "Not captured",
+    waiting: "Waiting for search",
+    noBudget: "Not set",
+    noDestination: "Not set",
+    noCategory: "To be identified",
+    welcomeTitle: "What are you looking for?",
+    welcomeText: "Skip the perfect keywords. Tell me the situation, budget, and concerns in your own words. I will understand, search, and explain.",
+    placeholder: "For example: I am in the US, find noise-cancelling headphones under 250 USD and estimate the landed price.",
+    send: "Send",
+    processing: "Working",
+    simulated: "Simulated catalog · simulated account context · no real transactions",
+    language: "中文",
+  },
+} as const;
 
 function loadOrCreate(key: string, prefix: string): string {
   const existing = localStorage.getItem(key);
@@ -19,18 +91,25 @@ interface Turn {
   text: string;
 }
 
+function latestEvent(events: TradeEvent[], type: TradeEvent["type"], tool?: string) {
+  return [...events]
+    .reverse()
+    .find((event) => event.type === type && (!tool || event.payload?.tool === tool));
+}
+
 export default function App() {
-  const [sessionId] = useState(() => loadOrCreate("globex.session", "web"));
-  const [buyerId] = useState(() => loadOrCreate("globex.buyer", "buyer"));
+  const [sessionId] = useState(() => loadOrCreate("ecommerce.session", "web"));
+  const [buyerId] = useState(() => loadOrCreate("ecommerce.buyer", "buyer"));
   const [events, setEvents] = useState<TradeEvent[]>([]);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [streaming, setStreaming] = useState("");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [language, setLanguage] = useState<"zh" | "en">("zh");
   const wsRef = useRef<WebSocket | null>(null);
+  const copy = UI[language];
 
-  // WS 订阅：按会话接收 Agent 过程事件（StrictMode 下会双次挂载，用 closed 标记避免早关告警）
   useEffect(() => {
     let closed = false;
     let retryTimer: number | undefined;
@@ -49,10 +128,7 @@ export default function App() {
       };
       ws.onclose = () => {
         setConnected(false);
-        if (!closed) {
-          // 断线重连，避免长任务期间丢事件
-          retryTimer = window.setTimeout(connect, 1500);
-        }
+        if (!closed) retryTimer = window.setTimeout(connect, 1500);
       };
       ws.onmessage = (message) => {
         const event: TradeEvent = JSON.parse(message.data);
@@ -89,7 +165,7 @@ export default function App() {
         body: JSON.stringify({
           shopping_session_id: sessionId,
           buyer_id: buyerId,
-          locale: "zh-CN",
+          locale: language === "en" ? "en-US" : "zh-CN",
           currency: "CNY",
           raw_query: query,
         }),
@@ -101,57 +177,224 @@ export default function App() {
     }
   };
 
+  const buyerTurns = turns.filter((turn) => turn.role === "buyer");
+  const agentTurns = turns.filter((turn) => turn.role === "agent");
+  const latestBuyerQuery = buyerTurns.length ? buyerTurns[buyerTurns.length - 1].text : "";
+  const searchInvoke = latestEvent(events, "tool.invoke", "product_search_tool");
+  const searchResult = latestEvent(events, "tool.result", "product_search_tool");
+  const searchArgs = searchInvoke?.payload?.args ?? {};
+  const searchPayload = searchResult?.payload ?? {};
+  const queryRows = useMemo(
+    () => [
+      { label: copy.originalQuery, value: latestBuyerQuery || copy.notCaptured, tone: "plain" },
+      {
+        label: copy.normalizedQuery,
+        value: searchArgs.normalized_query || copy.notCaptured,
+        tone: "blue",
+      },
+      { label: copy.category, value: searchArgs.category || copy.noCategory, tone: "violet" },
+      {
+        label: copy.destination,
+        value: searchArgs.ship_to || copy.noDestination,
+        tone: "coral",
+      },
+      {
+        label: copy.budget,
+        value:
+          searchArgs.price_max_major !== undefined && searchArgs.price_max_major !== null
+            ? `${searchArgs.price_max_major} CNY`
+            : copy.noBudget,
+        tone: "lime",
+      },
+    ],
+    [copy, latestBuyerQuery, searchArgs],
+  );
+  const statusLabel = busy ? copy.working : connected ? copy.ready : copy.disconnected;
+
   return (
-    <div className="layout">
-      <header>
-        <h1>Globex 跨境购物助手</h1>
-        <div className="meta">
-          <span>会话 {sessionId}</span>
-          <span>买家 {buyerId}</span>
-          <span className={connected ? "dot on" : "dot off"}>{connected ? "事件流已连接" : "事件流断开"}</span>
+    <div className="app-frame">
+      <header className="topbar">
+        <div className="brand-lockup">
+          <div className="brand-mark">E</div>
+          <div>
+            <div className="eyebrow">{copy.eyebrow}</div>
+            <h1>
+              {copy.brand} <span>{copy.title}</span>
+            </h1>
+          </div>
+        </div>
+        <div className="topbar-actions">
+          <div className="session-meta">
+            <span>{sessionId}</span>
+            <span className={connected ? "dot on" : "dot off"}>
+              {connected ? copy.connected : copy.disconnected}
+            </span>
+          </div>
+          <button
+            className="language-switch"
+            type="button"
+            onClick={() => setLanguage((current) => (current === "zh" ? "en" : "zh"))}
+            aria-label="Switch language"
+          >
+            {copy.language}
+          </button>
         </div>
       </header>
 
-      <main>
-        <section className="chat">
-          <div className="turns">
-            {turns.map((turn, index) => (
-              <div key={index} className={`turn ${turn.role}`}>
-                <div className="who">{turn.role === "buyer" ? "我" : "Globex"}</div>
-                <div className="text">{turn.text}</div>
-              </div>
-            ))}
-            {streaming && (
-              <div className="turn agent streaming">
-                <div className="who">Globex</div>
-                <div className="text">{streaming}</div>
-              </div>
-            )}
-            {busy && !streaming && <div className="hint">Agent 正在处理……</div>}
+      <div className="workspace">
+        <section className="agent-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">01 / AGENT</span>
+              <h2>{copy.results}</h2>
+            </div>
+            <span className={`status-badge ${busy ? "is-busy" : ""}`}>
+              <span className="status-pulse" />
+              {statusLabel}
+            </span>
           </div>
 
-          <ProductCards events={events} />
+          <div className="agent-feed">
+            {agentTurns.length === 0 && !streaming && (
+              <div className="welcome-block">
+                <div className="welcome-icon">✦</div>
+                <div>
+                  <h3>{copy.welcomeTitle}</h3>
+                  <p>{copy.welcomeText}</p>
+                </div>
+              </div>
+            )}
 
-          <div className="composer">
-            <textarea
-              value={input}
-              placeholder="例如：我人在美国，250 美元预算买个降噪耳机寄美国，到手价多少？"
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void submit();
-                }
-              }}
-            />
-            <button onClick={() => void submit()} disabled={busy || !input.trim()}>
-              {busy ? "处理中" : "发送"}
-            </button>
+            {agentTurns.map((turn, index) => (
+              <div key={index} className="agent-bubble">
+                <div className="bubble-label">
+                  <span className="agent-avatar">E</span>
+                  <span>{copy.brand}</span>
+                  <span className="bubble-marker">GUIDANCE</span>
+                </div>
+                <div className="bubble-text">{turn.text}</div>
+              </div>
+            ))}
+
+            {streaming && (
+              <div className="agent-bubble streaming">
+                <div className="bubble-label">
+                  <span className="agent-avatar">E</span>
+                  <span>{copy.brand}</span>
+                  <span className="bubble-marker">LIVE</span>
+                </div>
+                <div className="bubble-text">{streaming}</div>
+              </div>
+            )}
+
+            {busy && !streaming && (
+              <div className="thinking-line">
+                <span className="thinking-dots"><i /><i /><i /></span>
+                {copy.working}
+              </div>
+            )}
+          </div>
+
+          <div className="result-section">
+            <div className="subsection-heading">
+              <span>{copy.results}</span>
+              <span className="result-count">
+                {searchPayload.hit_count !== undefined ? `${searchPayload.hit_count}` : "--"}
+              </span>
+            </div>
+            <ProductCards events={events} />
+          </div>
+
+          <div className="activity-section">
+            <EventTimeline events={events} />
           </div>
         </section>
 
-        <EventTimeline events={events} />
-      </main>
+        <aside className="query-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">02 / QUERY</span>
+              <h2>{copy.brief}</h2>
+            </div>
+            <span className="query-symbol">⌁</span>
+          </div>
+          <p className="panel-intro">{copy.briefHint}</p>
+
+          <div className="query-feed">
+            {buyerTurns.length === 0 ? (
+              <div className="query-empty">
+                <div className="empty-orbit">?</div>
+                <p>{copy.emptyBrief}</p>
+              </div>
+            ) : (
+              buyerTurns.map((turn, index) => (
+                <div className="buyer-bubble" key={index}>
+                  <div className="bubble-label">
+                    <span className="buyer-avatar">YOU</span>
+                    <span>{copy.originalQuery}</span>
+                  </div>
+                  <div className="bubble-text">{turn.text}</div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="query-readout">
+            <div className="subsection-heading">
+              <span>{copy.queryReadout}</span>
+              <span className="readout-line" />
+            </div>
+            <div className="query-rows">
+              {queryRows.map((row) => (
+                <div className="query-row" key={row.label}>
+                  <span className="row-label">{row.label}</span>
+                  <span className={`row-value ${row.tone}`}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="query-stats">
+              <div>
+                <span>{copy.strategy}</span>
+                <strong>{searchPayload.recall_strategy || copy.waiting}</strong>
+              </div>
+              <div>
+                <span>{copy.candidates}</span>
+                <strong>{searchPayload.hit_count ?? "--"}</strong>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <form
+        className="composer-bar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <div className="composer-icon">↗</div>
+        <textarea
+          value={input}
+          placeholder={copy.placeholder}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void submit();
+            }
+          }}
+        />
+        <button type="submit" disabled={busy || !input.trim()}>
+          <span>{busy ? copy.processing : copy.send}</span>
+          <span className="send-arrow">↗</span>
+        </button>
+      </form>
+
+      <div className="demo-note">
+        <span className="note-dot" />
+        {copy.simulated}
+      </div>
     </div>
   );
 }
