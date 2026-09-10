@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import EventTimeline from "./components/EventTimeline";
 import ProductCards from "./components/ProductCards";
-import type { TradeEvent } from "./types";
+import type { ShoppingPlan, TradeEvent } from "./types";
 
 const localApiBase = `${window.location.protocol}//${window.location.hostname || "127.0.0.1"}:8000`;
 const isLocalVite = window.location.port === "5173" || window.location.port === "5174";
@@ -42,6 +42,29 @@ const UI = {
     processing: "处理中",
     simulated: "模拟商品目录 · 模拟账户上下文 · 不连接真实交易",
     language: "EN",
+    productLabel: "PRODUCT STUDY / 01",
+    projectTitle: "把模糊的购买表达，\n变成可解释的搜索。",
+    projectText: "Ecommerce 是一个面向跨境购物场景的 Agent 搜索工作台。它把用户的自然语言需求拆成 Query、品类、目的地与预算，再召回商品并解释为什么这样推荐。",
+    contextTitle: "SIMULATED CONTEXT",
+    contextItems: ["自然语言意图理解", "商品召回与到手价估算", "事件流与决策可追溯"],
+    desktop: "DESKTOP",
+    mobile: "MOBILE",
+    live: "LIVE SEARCH",
+    conversation: "Agent conversation",
+    customer: "Customer",
+    queryInspector: "Query inspector",
+    session: "SESSION",
+    planTitle: "购物计划",
+    planEmpty: "描述一个场景后，购物目标和任务会显示在这里。",
+    planGoal: "目标",
+    planConditions: "已识别条件",
+    planTasks: "商品任务",
+    planMissing: "待确认",
+    examples: [
+      "我要去美国露营，总预算 500 元，想准备轻便耐用的装备。",
+      "给经常坐飞机的家人准备一套 400 元以内的旅行用品，寄到美国。",
+      "第一次在家做手冲咖啡，预算 300 元，需要准备什么？",
+    ],
   },
   en: {
     brand: "Ecommerce",
@@ -75,6 +98,29 @@ const UI = {
     processing: "Working",
     simulated: "Simulated catalog · simulated account context · no real transactions",
     language: "中文",
+    productLabel: "PRODUCT STUDY / 01",
+    projectTitle: "Turn vague shopping intent\ninto explainable search.",
+    projectText: "Ecommerce is an Agent workbench for cross-border shopping. It translates natural language into query, category, destination and budget, then retrieves and explains product candidates.",
+    contextTitle: "SIMULATED CONTEXT",
+    contextItems: ["Natural-language intent", "Product recall and landed price", "Traceable agent decisions"],
+    desktop: "DESKTOP",
+    mobile: "MOBILE",
+    live: "LIVE SEARCH",
+    conversation: "Agent conversation",
+    customer: "Customer",
+    queryInspector: "Query inspector",
+    session: "SESSION",
+    planTitle: "Shopping plan",
+    planEmpty: "Describe a situation to reveal the goal and product tasks.",
+    planGoal: "Goal",
+    planConditions: "Conditions",
+    planTasks: "Product tasks",
+    planMissing: "To clarify",
+    examples: [
+      "I am camping in the US with a CNY 500 budget and need lightweight, durable gear.",
+      "Prepare travel essentials under CNY 400 for a frequent flyer, shipped to the US.",
+      "I am new to pour-over coffee and have a CNY 300 budget. What do I need?",
+    ],
   },
 } as const;
 
@@ -107,6 +153,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(false);
   const [language, setLanguage] = useState<"zh" | "en">("zh");
+  const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
   const wsRef = useRef<WebSocket | null>(null);
   const copy = UI[language];
 
@@ -152,8 +199,8 @@ export default function App() {
     };
   }, [sessionId]);
 
-  const submit = async () => {
-    const query = input.trim();
+  const submit = async (suggestedQuery?: string) => {
+    const query = (suggestedQuery ?? input).trim();
     if (!query || busy) return;
     setInput("");
     setBusy(true);
@@ -178,12 +225,15 @@ export default function App() {
   };
 
   const buyerTurns = turns.filter((turn) => turn.role === "buyer");
-  const agentTurns = turns.filter((turn) => turn.role === "agent");
   const latestBuyerQuery = buyerTurns.length ? buyerTurns[buyerTurns.length - 1].text : "";
   const searchInvoke = latestEvent(events, "tool.invoke", "product_search_tool");
   const searchResult = latestEvent(events, "tool.result", "product_search_tool");
   const searchArgs = searchInvoke?.payload?.args ?? {};
   const searchPayload = searchResult?.payload ?? {};
+  const planEvent = [...events]
+    .reverse()
+    .find((event) => event.type === "plan.update" && event.payload?.shopping_plan);
+  const shoppingPlan = planEvent?.payload?.shopping_plan as ShoppingPlan | undefined;
   const queryRows = useMemo(
     () => [
       { label: copy.originalQuery, value: latestBuyerQuery || copy.notCaptured, tone: "plain" },
@@ -212,7 +262,7 @@ export default function App() {
   const statusLabel = busy ? copy.working : connected ? copy.ready : copy.disconnected;
 
   return (
-    <div className="app-frame">
+    <div className={`app-frame ${previewMode === "mobile" ? "mobile-preview" : ""}`}>
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark">E</div>
@@ -224,6 +274,22 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <div className="view-switch" aria-label="Preview mode">
+            <button
+              className={previewMode === "desktop" ? "active" : ""}
+              type="button"
+              onClick={() => setPreviewMode("desktop")}
+            >
+              {copy.desktop}
+            </button>
+            <button
+              className={previewMode === "mobile" ? "active" : ""}
+              type="button"
+              onClick={() => setPreviewMode("mobile")}
+            >
+              {copy.mobile}
+            </button>
+          </div>
           <div className="session-meta">
             <span>{sessionId}</span>
             <span className={connected ? "dot on" : "dot off"}>
@@ -241,12 +307,39 @@ export default function App() {
         </div>
       </header>
 
-      <div className="workspace">
-        <section className="agent-panel">
-          <div className="panel-heading">
+      <div className="portfolio-layout">
+        <aside className="project-rail">
+          <div className="rail-topline">
+            <span className="rail-index">E / 01</span>
+            <span className="rail-status"><i /> {copy.live}</span>
+          </div>
+          <div className="rail-copy">
+            <span className="rail-kicker">{copy.productLabel}</span>
+            <h2>{copy.projectTitle}</h2>
+            <p>{copy.projectText}</p>
+          </div>
+          <div className="rail-context">
+            <div className="rail-context-title">{copy.contextTitle}</div>
+            {copy.contextItems.map((item, index) => (
+              <div className={`context-item ${index === 0 ? "selected" : ""}`} key={item}>
+                <span className="context-number">0{index + 1}</span>
+                <span>{item}</span>
+                <span className="context-mark">{index === 0 ? "↗" : "·"}</span>
+              </div>
+            ))}
+          </div>
+          <div className="rail-footer">
+            <span>{copy.session}</span>
+            <strong>{sessionId}</strong>
+            <span className="rail-disclaimer">{copy.simulated}</span>
+          </div>
+        </aside>
+
+        <main className="conversation-shell">
+          <div className="conversation-header">
             <div>
-              <span className="section-kicker">01 / AGENT</span>
-              <h2>{copy.results}</h2>
+              <span className="section-kicker">02 / CONVERSATION</span>
+              <h2>{copy.conversation}</h2>
             </div>
             <span className={`status-badge ${busy ? "is-busy" : ""}`}>
               <span className="status-pulse" />
@@ -254,142 +347,181 @@ export default function App() {
             </span>
           </div>
 
-          <div className="agent-feed">
-            {agentTurns.length === 0 && !streaming && (
-              <div className="welcome-block">
-                <div className="welcome-icon">✦</div>
-                <div>
-                  <h3>{copy.welcomeTitle}</h3>
-                  <p>{copy.welcomeText}</p>
-                </div>
-              </div>
-            )}
-
-            {agentTurns.map((turn, index) => (
-              <div key={index} className="agent-bubble">
-                <div className="bubble-label">
-                  <span className="agent-avatar">E</span>
-                  <span>{copy.brand}</span>
-                  <span className="bubble-marker">GUIDANCE</span>
-                </div>
-                <div className="bubble-text">{turn.text}</div>
-              </div>
-            ))}
-
-            {streaming && (
-              <div className="agent-bubble streaming">
-                <div className="bubble-label">
-                  <span className="agent-avatar">E</span>
-                  <span>{copy.brand}</span>
-                  <span className="bubble-marker">LIVE</span>
-                </div>
-                <div className="bubble-text">{streaming}</div>
-              </div>
-            )}
-
-            {busy && !streaming && (
-              <div className="thinking-line">
-                <span className="thinking-dots"><i /><i /><i /></span>
-                {copy.working}
-              </div>
-            )}
-          </div>
-
-          <div className="result-section">
-            <div className="subsection-heading">
-              <span>{copy.results}</span>
-              <span className="result-count">
-                {searchPayload.hit_count !== undefined ? `${searchPayload.hit_count}` : "--"}
-              </span>
-            </div>
-            <ProductCards events={events} />
-          </div>
-
-          <div className="activity-section">
-            <EventTimeline events={events} />
-          </div>
-        </section>
-
-        <aside className="query-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="section-kicker">02 / QUERY</span>
-              <h2>{copy.brief}</h2>
-            </div>
-            <span className="query-symbol">⌁</span>
-          </div>
-          <p className="panel-intro">{copy.briefHint}</p>
-
-          <div className="query-feed">
-            {buyerTurns.length === 0 ? (
-              <div className="query-empty">
-                <div className="empty-orbit">?</div>
-                <p>{copy.emptyBrief}</p>
-              </div>
-            ) : (
-              buyerTurns.map((turn, index) => (
-                <div className="buyer-bubble" key={index}>
-                  <div className="bubble-label">
-                    <span className="buyer-avatar">YOU</span>
-                    <span>{copy.originalQuery}</span>
+          <div className="conversation-body">
+            <div className="conversation-feed">
+              {turns.length === 0 && !streaming && (
+                <div className="welcome-block">
+                  <div className="welcome-icon">✦</div>
+                  <div>
+                    <h3>{copy.welcomeTitle}</h3>
+                    <p>{copy.welcomeText}</p>
+                    <div className="example-queries">
+                      {copy.examples.map((example) => (
+                        <button key={example} type="button" onClick={() => void submit(example)}>
+                          {example}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="bubble-text">{turn.text}</div>
                 </div>
-              ))
-            )}
+              )}
+
+              <section className={`shopping-plan ${shoppingPlan ? "has-plan" : ""}`}>
+                <div className="plan-heading">
+                  <span className="section-kicker">PLAN / LIVE</span>
+                  <h3>{copy.planTitle}</h3>
+                </div>
+                {!shoppingPlan ? (
+                  <p className="plan-empty">{copy.planEmpty}</p>
+                ) : (
+                  <div className="plan-grid">
+                    <div className="plan-summary">
+                      <span>{copy.planGoal}</span>
+                      <strong>{shoppingPlan.goal}</strong>
+                    </div>
+                    <div className="plan-summary">
+                      <span>{copy.planConditions}</span>
+                      <strong>
+                        {[
+                          shoppingPlan.destination,
+                          shoppingPlan.budget_major
+                            ? `${shoppingPlan.budget_major} ${shoppingPlan.currency}`
+                            : "",
+                          ...shoppingPlan.preferences,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "--"}
+                      </strong>
+                    </div>
+                    <div className="plan-list">
+                      <span>{copy.planTasks}</span>
+                      <ol>
+                        {shoppingPlan.tasks.map((task) => <li key={task}>{task}</li>)}
+                      </ol>
+                    </div>
+                    {!!shoppingPlan.missing_slots.length && (
+                      <div className="plan-list missing">
+                        <span>{copy.planMissing}</span>
+                        <p>{shoppingPlan.missing_slots.join(" · ")}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+
+              {turns.map((turn, index) =>
+                turn.role === "buyer" ? (
+                  <div className="chat-turn buyer-turn" key={index}>
+                    <div className="bubble-label">
+                      <span className="buyer-avatar">YOU</span>
+                      <span>{copy.customer}</span>
+                    </div>
+                    <div className="bubble-text">{turn.text}</div>
+                  </div>
+                ) : (
+                  <div className="chat-turn agent-turn" key={index}>
+                    <div className="bubble-label">
+                      <span className="agent-avatar">E</span>
+                      <span>{copy.brand}</span>
+                      <span className="bubble-marker">GUIDANCE</span>
+                    </div>
+                    <div className="bubble-text">{turn.text}</div>
+                  </div>
+                ),
+              )}
+
+              {streaming && (
+                <div className="chat-turn agent-turn streaming">
+                  <div className="bubble-label">
+                    <span className="agent-avatar">E</span>
+                    <span>{copy.brand}</span>
+                    <span className="bubble-marker">LIVE</span>
+                  </div>
+                  <div className="bubble-text">{streaming}</div>
+                </div>
+              )}
+
+              {busy && !streaming && (
+                <div className="thinking-line">
+                  <span className="thinking-dots"><i /><i /><i /></span>
+                  {copy.working}
+                </div>
+              )}
+
+              <div className="search-output">
+                <div className="output-heading">
+                  <div>
+                    <span className="section-kicker">03 / OUTPUT</span>
+                    <h3>{copy.results}</h3>
+                  </div>
+                  <span className="result-count">
+                    {searchPayload.hit_count !== undefined ? `${searchPayload.hit_count}` : "--"}
+                  </span>
+                </div>
+                <ProductCards events={events} />
+              </div>
+
+              <div className="insight-panel">
+                <div className="output-heading">
+                  <div>
+                    <span className="section-kicker">04 / READOUT</span>
+                    <h3>{copy.queryInspector}</h3>
+                  </div>
+                  <span className="query-symbol">⌁</span>
+                </div>
+                <p className="panel-intro">{copy.briefHint}</p>
+                <div className="query-rows">
+                  {queryRows.map((row) => (
+                    <div className="query-row" key={row.label}>
+                      <span className="row-label">{row.label}</span>
+                      <span className={`row-value ${row.tone}`}>{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="query-stats">
+                  <div>
+                    <span>{copy.strategy}</span>
+                    <strong>{searchPayload.recall_strategy || copy.waiting}</strong>
+                  </div>
+                  <div>
+                    <span>{copy.candidates}</span>
+                    <strong>{searchPayload.hit_count ?? "--"}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="activity-section">
+                <EventTimeline events={events} />
+              </div>
+            </div>
           </div>
 
-          <div className="query-readout">
-            <div className="subsection-heading">
-              <span>{copy.queryReadout}</span>
-              <span className="readout-line" />
-            </div>
-            <div className="query-rows">
-              {queryRows.map((row) => (
-                <div className="query-row" key={row.label}>
-                  <span className="row-label">{row.label}</span>
-                  <span className={`row-value ${row.tone}`}>{row.value}</span>
-                </div>
-              ))}
-            </div>
-            <div className="query-stats">
-              <div>
-                <span>{copy.strategy}</span>
-                <strong>{searchPayload.recall_strategy || copy.waiting}</strong>
-              </div>
-              <div>
-                <span>{copy.candidates}</span>
-                <strong>{searchPayload.hit_count ?? "--"}</strong>
-              </div>
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      <form
-        className="composer-bar"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <div className="composer-icon">↗</div>
-        <textarea
-          value={input}
-          placeholder={copy.placeholder}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
+          <form
+            className="composer-bar"
+            onSubmit={(event) => {
+              event.preventDefault();
               void submit();
-            }
-          }}
-        />
-        <button type="submit" disabled={busy || !input.trim()}>
-          <span>{busy ? copy.processing : copy.send}</span>
-          <span className="send-arrow">↗</span>
-        </button>
-      </form>
+            }}
+          >
+            <div className="composer-icon">↗</div>
+            <textarea
+              value={input}
+              placeholder={copy.placeholder}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
+            />
+            <button type="submit" disabled={busy || !input.trim()}>
+              <span>{busy ? copy.processing : copy.send}</span>
+              <span className="send-arrow">↗</span>
+            </button>
+          </form>
+        </main>
+      </div>
 
       <div className="demo-note">
         <span className="note-dot" />

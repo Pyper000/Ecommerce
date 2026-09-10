@@ -31,6 +31,9 @@ function summarize(event: TradeEvent): string {
       return String(p.tool ?? "");
     }
     case "plan.update":
+      if (p.shopping_plan) {
+        return `${p.shopping_plan.goal}：${(p.shopping_plan.tasks ?? []).join(" · ")}`;
+      }
       return (p.tasks ?? [])
         .map((task: any) => `${task.subject}[${task.state}]`)
         .join(" · ");

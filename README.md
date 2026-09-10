@@ -8,7 +8,7 @@ Ecommerce 是一个面向跨境购物的搜索与决策 Agent。它处理的不�
 
 这类 Query 同时包含品类、属性、预算、目的国、长期偏好和购买动作。项目的核心目标是让系统不仅返回商品，还能解释“为什么推荐”“为什么没有结果”以及“下一步该怎么做”。
 
-当前项目使用模拟商品目录、脱敏知识文档和离线评测数据，不接入真实用户、支付、账户、物流或企业搜索日志。
+当前项目使用模拟商品目录、脱敏知识文档和离线评测数据，不接入真实用户、支付、账户、物流或企业搜索日志。它是 AI 产品经理作品集，用于展示场景拆解、搜索策略、Agent 编排和可验证性。
 
 ## 搜索决策链路
 
@@ -149,6 +149,13 @@ uv run python scripts/eval_regression.py   # 评测回归：13 条 case，LLM ju
 
 评测 case 支持 `prior_context` 字段：把跨会话已成立的事实（如上一 case 写入的长期偏好）告知 judge，
 否则 judge 只看本会话记录，会把"正确应用历史偏好"误判为"无据添加"。
+
+## 作品集阅读入口
+
+- 产品案例说明：[`docs/portfolio-case-study.md`](docs/portfolio-case-study.md)
+- 评测数据：[`eval/product_recall.jsonl`](eval/product_recall.jsonl)
+- 在线部署配置：[`render.yaml`](render.yaml)
+- GitHub：https://github.com/Pyper000/Ecommerce
 
 ## Docker 部署
 

@@ -39,6 +39,7 @@ from app.application.memory.preference_selector import PreferenceSelector
 from app.application.prompts.loader import load_prompts
 from app.application.tools.forget_preference_tool import build_forget_preference_tool
 from app.application.tools.remember_preference_tool import build_remember_preference_tool
+from app.application.tools.shopping_plan_tool import build_update_shopping_plan_tool
 from app.application.tools.task_dispatch_tool import build_task_dispatch_tool
 from app.domain.buyer.preference import PreferenceStore
 from app.domain.session.ports.session_store import SessionStore
@@ -115,6 +116,11 @@ class MainAgentFactory:
             TaskUpdate(),
             TaskList(),
             TaskGet(),
+            # 场景探索的共享业务状态：先形成计划，再搜索具体商品
+            FunctionTool(
+                build_update_shopping_plan_tool(self._bus),
+                middlewares=self._resilience(),
+            ),
             # 3. SubAgent as Tool 调度（is_concurrency_safe 默认为 True，
             #    主 Agent 同一轮发起的多个派发会被 2.0 并发批执行）
             FunctionTool(

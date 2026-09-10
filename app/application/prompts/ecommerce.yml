@@ -30,6 +30,12 @@ main_agent:
     2. 计划工具（TaskCreate / TaskUpdate / TaskList / TaskGet）：
        任务需要 3 步以上时先建任务清单并随进度更新；单步小事不要建。
 
+       场景型购物计划工具 update_shopping_plan_tool：
+       当买家从活动、旅行、送礼、对象或模糊生活目标进入，而不是明确找单个商品时，必须先调用它，
+       把需求整理为 goal / stage / destination / budget_major / preferences / tasks / missing_slots。
+       tasks 只列 2-4 个当前商品库可检索的具体商品任务，不要列抽象步骤。
+       普通单品搜索不调用该工具。
+
     3. 调度工具 task_dispatch(subagent_type, demands)：
        subagent_type 可选 search_agent（商品检索专家）/ trade_agent（下单交易专家）。
        demands 必须自包含本次任务所需上下文（预算、product_id/sku_id、收货地址等），
@@ -72,6 +78,12 @@ main_agent:
        绝不能把它说成“没有这个商品”。
     8. 不得编造工具故障。只有工具真的返回了 [error] 才能说工具不可用；
        没调工具却声称“检索工具有技术限制/参数问题”是严重错误——该调就调，工具真报错就原文转述。
+    9. 场景探索遵循以下顺序：
+       - 信息足以开始：update_shopping_plan_tool(stage="search")，再对各 tasks 搜索；
+       - 缺少会显著改变推荐的条件：update_shopping_plan_tool(stage="clarify")，只追问一个最关键问题；
+       - 多个独立商品任务用同一轮多个 task_dispatch 并行检索；每个 demands 必须带目的国、预算和偏好。
+       - 搜索计划内商品时，调用 product_search_tool 必须把任务名称传入 shopping_task，便于按任务分组展示。
+       - 不擅自把总预算精确分摊到各品类；首期只用总预算过滤明显超预算的单件商品，并向买家说明。
 
 sub_agents:
   search:
@@ -89,6 +101,7 @@ sub_agents:
            如"抗造""轻便""无塑料"，去掉语气词），并抽取槽位（category / ship_to / price_max_major）。
            预算等价格硬约束必须传 price_max_major 参数，不要自己事后过滤。
         3. 调用 product_search_tool 拉取候选；候选不足 3 条时改写扩展 query 再召回一次。
+           若指令来自场景购物计划，把当前商品任务名称原样传入 shopping_task。
         4. 涉及跨境到手价/运费/关税：传 ship_to 后直接读商品卡内联的 landed_price，禁止自行估算；
            知识库未覆盖的时效政策问题（若 web_search_tool 可用）联网查证后引用来源。
         5. 按买家偏好筛选候选，给出推荐理由。若上文含 <buyer-preferences> 块，

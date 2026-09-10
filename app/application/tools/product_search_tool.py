@@ -28,6 +28,7 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus)
         top_k: int | str = 5,
         price_max_major: float | str | None = None,
         target_currency: str = "CNY",
+        shopping_task: Optional[str] = None,
     ) -> ToolChunk:
         """检索跨境商品库（embedding+rerank 二阶段召回），返回 Top-K 商品卡 JSON。
         传入 ship_to 时商品卡自动内联 landed_price 到手价明细（小计+运费+关税，统一折算 target_currency），
@@ -46,6 +47,8 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus)
                 价格上限（target_currency 主单位），买家有预算硬约束时必传，由检索链路结构化过滤。
             target_currency (`str`):
                 价格口径币种，默认 "CNY"。
+            shopping_task (`str | None`):
+                场景购物计划中的当前商品任务，如“露营照明”；普通单品搜索不传。
         """
         # 模型有时会把数字参数当字符串传（实测 qwen3-max 传 "300"），
         # schema 层放宽为接受数字字符串，这里统一强转后再进检索链路。
@@ -73,6 +76,7 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus)
             "top_k": top_k,
             "price_max_major": price_max_major,
             "target_currency": target_currency,
+            "shopping_task": shopping_task,
         }
         bus.publish(session_id, "tool.invoke", {"tool": "product_search_tool", "args": args})
         try:
@@ -100,6 +104,7 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus)
                 "recall_strategy": result["recall_strategy"],
                 # 商品卡随事件下发，前端无需再调接口即可渲染（含 landed_price 到手价）
                 "hits": result["hits"],
+                "shopping_task": shopping_task,
             },
         )
         return ToolChunk(

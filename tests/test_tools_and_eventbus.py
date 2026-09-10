@@ -7,6 +7,7 @@ import pytest
 
 from app.application.tools.order_tools import build_create_order_tool
 from app.application.tools.product_search_tool import build_product_search_tool
+from app.application.tools.shopping_plan_tool import build_update_shopping_plan_tool
 from app.application.usecases.catalog_search import CatalogSearchUseCase
 from app.application.usecases.order_usecases import PlaceOrderUseCase
 from app.infrastructure.context import ShoppingContext, ShoppingContextSnapshot
@@ -45,6 +46,37 @@ class TestTradeEventBus:
 
 
 class TestToolsDirectInvoke:
+    async def test_shopping_plan_tool_publishes_structured_plan(self):
+        bus = TradeEventBus()
+        queue = bus.subscribe("s1")
+        tool = build_update_shopping_plan_tool(bus)
+        token = ShoppingContext.set(
+            ShoppingContextSnapshot(shopping_session_id="s1", buyer_id="b1", locale="zh-CN", currency="CNY"),
+        )
+        try:
+            response = await tool(
+                goal="准备美国露营",
+                stage="search",
+                destination="us",
+                budget_major="500",
+                preferences=["轻便", "耐用"],
+                tasks=["露营灯", "防潮垫", "户外炊具"],
+            )
+        finally:
+            ShoppingContext.reset(token)
+
+        payload = json.loads(response.content[0].text)
+        assert payload["destination"] == "US"
+        assert payload["budget_major"] == 500
+        event = await queue.get()
+        assert event.type == "plan.update"
+        assert event.payload["shopping_plan"]["tasks"] == ["露营灯", "防潮垫", "户外炊具"]
+
+    async def test_shopping_plan_limits_scene_scope(self):
+        tool = build_update_shopping_plan_tool(TradeEventBus())
+        response = await tool(goal="准备露营", tasks=["1", "2", "3", "4", "5"])
+        assert response.content[0].text.startswith("[error] 首期购物计划最多包含 4 个任务")
+
     async def test_product_search_tool(self):
         bus = TradeEventBus()
         queue = bus.subscribe("s1")

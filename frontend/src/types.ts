@@ -42,3 +42,14 @@ export interface ProductCard {
   score: number;
   landed_price?: LandedPrice;
 }
+
+export interface ShoppingPlan {
+  goal: string;
+  stage: "explore" | "clarify" | "search" | "compare" | "confirm" | "service";
+  destination?: string;
+  budget_major?: number;
+  currency: string;
+  preferences: string[];
+  tasks: string[];
+  missing_slots: string[];
+}

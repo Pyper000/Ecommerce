@@ -26,6 +26,7 @@ _AUTO_ALLOWED_TOOLS = (
     "TaskUpdate",
     "TaskList",
     "TaskGet",
+    "update_shopping_plan_tool",
 )
 
 

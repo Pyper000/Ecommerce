@@ -1,23 +1,40 @@
 import type { ProductCard, TradeEvent } from "../types";
 
-/** 从最近一次 product_search 相关的工具事件里取商品卡（工具结果 JSON 由 Agent 侧透传）。 */
-function latestCards(events: TradeEvent[]): ProductCard[] {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i];
+function cardGroups(events: TradeEvent[]): { task: string; cards: ProductCard[] }[] {
+  let latestPlan = -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index].type === "plan.update" && events[index].payload?.shopping_plan) {
+      latestPlan = index;
+      break;
+    }
+  }
+  const relevant = latestPlan >= 0 ? events.slice(latestPlan) : events;
+  const groups = new Map<string, ProductCard[]>();
+  for (const event of relevant) {
     if (event.type !== "tool.result") continue;
     const cards = event.payload?.hits as ProductCard[] | undefined;
-    if (cards && cards.length) return cards;
+    if (!cards?.length) continue;
+    const task = String(event.payload?.shopping_task || "搜索结果");
+    const existing = groups.get(task) ?? [];
+    for (const card of cards) {
+      if (!existing.some((item) => item.product_id === card.product_id)) existing.push(card);
+    }
+    groups.set(task, existing.slice(0, 5));
   }
-  return [];
+  return [...groups].map(([task, cards]) => ({ task, cards }));
 }
 
 export default function ProductCards({ events }: { events: TradeEvent[] }) {
-  const cards = latestCards(events);
-  if (!cards.length) return null;
+  const groups = cardGroups(events);
+  if (!groups.length) return null;
 
   return (
-    <div className="cards">
-      {cards.map((card) => (
+    <div className="product-groups">
+      {groups.map(({ task, cards }) => (
+        <section className="product-group" key={task}>
+          <h4>{task}</h4>
+          <div className="cards">
+            {cards.map((card) => (
         <article key={card.product_id} className="card">
           <header>
             <strong>{card.title}</strong>
@@ -53,6 +70,9 @@ export default function ProductCards({ events }: { events: TradeEvent[] }) {
             ))}
           </div>
         </article>
+            ))}
+          </div>
+        </section>
       ))}
     </div>
   );
