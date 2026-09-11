@@ -441,10 +441,11 @@ export default function App() {
                 </div>
               )}
 
-              {busy && !streaming && (
-                <div className="thinking-line">
+              {busy && (
+                <div className="thinking-line" role="status" aria-live="polite">
+                  <span className="thinking-logo" aria-hidden="true">E</span>
+                  <span>{streaming ? "正在生成" : copy.working}</span>
                   <span className="thinking-dots"><i /><i /><i /></span>
-                  {copy.working}
                 </div>
               )}
 
